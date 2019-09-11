@@ -170,6 +170,7 @@ function main() {
     prompts
     configure_proxy
     install_docker
+    # check_nodeless replace_cri install_milpa
     upgrade_kubernetes_patch
     kubernetes_host
     init
