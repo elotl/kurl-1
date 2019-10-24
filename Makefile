@@ -150,7 +150,7 @@ build/addons:
 
 build/yaml:
 	mkdir -p build
-	cp -r scripts/yaml build/
+	cp -r kustomize build/
 
 build/shared: kurl-util-image
 	mkdir -p build/shared

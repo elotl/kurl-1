@@ -36,21 +36,27 @@ function init() {
         fi
     fi
 
-	mkdir -p "$KUBEADM_CONF_DIR"
-	render_yaml kubeadm-init-config-v1beta2.yml > "$KUBEADM_CONF_FILE"
+    rm -rf ./kustomize/kubeadm/init
+    cp -rf ./kustomize/kubeadm/init-orig ./kustomize/kubeadm/init
     if [ "$HA_CLUSTER" = "1" ]; then
         CERT_KEY=$(< /dev/urandom tr -dc a-f0-9 | head -c64)
-        echo "certificateKey: $CERT_KEY" >> "$KUBEADM_CONF_FILE"
+        insert_patches_strategic_merge \
+            ./kustomize/kubeadm/init/base/kustomization.yaml \
+            patch-certificate-key.yaml
     fi
-    render_yaml kubeproxy-config-v1alpha1.yml >> "$KUBEADM_CONF_FILE"
-	render_yaml kubeadm-cluster-config-v1beta2.yml >> "$KUBEADM_CONF_FILE"
     if [ -n "$PUBLIC_ADDRESS" ]; then
-        echo "  - $PUBLIC_ADDRESS" >> "$KUBEADM_CONF_FILE"
+        insert_patches_strategic_merge \
+            ./kustomize/kubeadm/init/base/kustomization.yaml \
+            patch-public-address.yaml
     fi
     if [ -n "$LOAD_BALANCER_ADDRESS" ]; then
-        echo "  - $LOAD_BALANCER_ADDRESS" >> "$KUBEADM_CONF_FILE"
-        echo "controlPlaneEndpoint: $LOAD_BALANCER_ADDRESS:$LOAD_BALANCER_PORT" >> "$KUBEADM_CONF_FILE"
+        insert_patches_strategic_merge \
+            ./kustomize/kubeadm/init/base/kustomization.yaml \
+            patch-load-balancer-address.yaml
     fi
+    mkdir -p "$KUBEADM_CONF_DIR"
+    kustomize build ./kustomize/kubeadm/init > $KUBEADM_CONF_DIR/kubeadm-init-raw.yaml
+    render_yaml_file $KUBEADM_CONF_DIR/kubeadm-init-raw.yaml > $KUBEADM_CONF_FILE
 
     if [ "$HA_CLUSTER" = "1" ]; then
         UPLOAD_CERTS="--upload-certs"
@@ -60,7 +66,7 @@ function init() {
     disable_rook_ceph_operator
     kubeadm init \
         --ignore-preflight-errors=all \
-        --config /opt/replicated/kubeadm.conf \
+        --config $KUBEADM_CONF_FILE \
         $UPLOAD_CERTS \
         | tee /tmp/kubeadm-init
 

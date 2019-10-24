@@ -37,12 +37,16 @@ function join() {
         logStep "Join Kubernetes node"
     fi
 
-    mkdir -p "$KUBEADM_CONF_DIR"
-    render_yaml kubeadm-join-config-v1beta2.yaml > "$KUBEADM_CONF_FILE"
+    rm -rf ./kustomize/kubeadm/join
+    cp -rf ./kustomize/kubeadm/join-orig ./kustomize/kubeadm/join
     if [ "$MASTER" = "1" ]; then
-        echo "controlPlane:" >> "$KUBEADM_CONF_FILE"
-        echo "  certificateKey: $CERT_KEY" >> "$KUBEADM_CONF_FILE"
+        insert_patches_strategic_merge \
+            ./kustomize/kubeadm/join/base/kustomization.yaml \
+            patch-certificate-key.yaml
     fi
+    mkdir -p "$KUBEADM_CONF_DIR"
+    kustomize build ./kustomize/kubeadm/join > $KUBEADM_CONF_DIR/kubeadm-join-raw.yaml
+    render_yaml_file $KUBEADM_CONF_DIR/kubeadm-join-raw.yaml > $KUBEADM_CONF_FILE
 
     set +e
     (set -x; kubeadm join --config /opt/replicated/kubeadm.conf --ignore-preflight-errors=all)
