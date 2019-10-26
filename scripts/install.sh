@@ -36,26 +36,33 @@ function init() {
         fi
     fi
 
-    rm -rf ./kustomize/kubeadm/init
-    cp -rf ./kustomize/kubeadm/init-orig ./kustomize/kubeadm/init
+    kustomize_kubeadm_init=./kustomize/kubeadm/init
     if [ "$HA_CLUSTER" = "1" ]; then
         CERT_KEY=$(< /dev/urandom tr -dc a-f0-9 | head -c64)
         insert_patches_strategic_merge \
-            ./kustomize/kubeadm/init/base/kustomization.yaml \
+            $kustomize_kubeadm_init/kustomization.yaml \
             patch-certificate-key.yaml
     fi
     if [ -n "$PUBLIC_ADDRESS" ]; then
         insert_patches_strategic_merge \
-            ./kustomize/kubeadm/init/base/kustomization.yaml \
+            $kustomize_kubeadm_init/kustomization.yaml \
             patch-public-address.yaml
     fi
     if [ -n "$LOAD_BALANCER_ADDRESS" ]; then
         insert_patches_strategic_merge \
-            ./kustomize/kubeadm/init/base/kustomization.yaml \
+            $kustomize_kubeadm_init/kustomization.yaml \
             patch-load-balancer-address.yaml
     fi
+    # Add kubeadm init patches from addons.
+    for patch in $(ls -1 ${kustomize_kubeadm_init}-patches/* 2>/dev/null || echo); do
+        patch_basename="$(basename $patch)"
+        cp $patch $kustomize_kubeadm_init/$patch_basename
+        insert_patches_strategic_merge \
+            $kustomize_kubeadm_init/kustomization.yaml \
+            $patch_basename
+    done
     mkdir -p "$KUBEADM_CONF_DIR"
-    kustomize build ./kustomize/kubeadm/init > $KUBEADM_CONF_DIR/kubeadm-init-raw.yaml
+    kustomize build $kustomize_kubeadm_init > $KUBEADM_CONF_DIR/kubeadm-init-raw.yaml
     render_yaml_file $KUBEADM_CONF_DIR/kubeadm-init-raw.yaml > $KUBEADM_CONF_FILE
 
     if [ "$HA_CLUSTER" = "1" ]; then
@@ -176,10 +183,16 @@ function main() {
     prompts
     configure_proxy
     install_docker
-    # check_nodeless replace_cri install_milpa
     upgrade_kubernetes_patch
     kubernetes_host
+    setup_kubeadm_kustomize
+    addon_pre_init aws "$AWS_VERSION"
+    addon_pre_init weave "$WEAVE_VERSION"
+    addon_pre_init rook "$ROOK_VERSION"
+    addon_pre_init contour "$CONTOUR_VERSION"
+    addon_pre_init registry "$REGISTRY_VERSION"
     init
+    addon aws "$AWS_VERSION"
     addon weave "$WEAVE_VERSION"
     addon rook "$ROOK_VERSION"
     addon contour "$CONTOUR_VERSION"

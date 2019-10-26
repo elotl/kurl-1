@@ -1,13 +1,7 @@
 
 function check_nodeless {
     logStep "Check if this is a nodeless setup"
-    NODE_NAME="$(hostname -f)"
-    CRI_SOCKET=""
-    NODELESS_SUFFIX=""
-    if [ "$NODELESS" = "1" ]; then
-        CRI_SOCKET="/run/criproxy.sock"
-        NODELESS_SUFFIX="-nodeless"
-    fi
+    CRI_SOCKET="/run/criproxy.sock"
 }
 
 function install_milpa() {
