@@ -8,4 +8,3 @@ nodeRegistration:
   kubeletExtraArgs:
     node-ip: $PRIVATE_ADDRESS
     cloud-provider: aws
-    max-pods: '1000'
