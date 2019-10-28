@@ -187,12 +187,14 @@ function main() {
     kubernetes_host
     setup_kubeadm_kustomize
     addon_pre_init aws "$AWS_VERSION"
+    addon_pre_init nodeless "$NODELESS_VERSION"
     addon_pre_init weave "$WEAVE_VERSION"
     addon_pre_init rook "$ROOK_VERSION"
     addon_pre_init contour "$CONTOUR_VERSION"
     addon_pre_init registry "$REGISTRY_VERSION"
     init
     addon aws "$AWS_VERSION"
+    addon nodeless "$NODELESS_VERSION"
     addon weave "$WEAVE_VERSION"
     addon rook "$ROOK_VERSION"
     addon contour "$CONTOUR_VERSION"
