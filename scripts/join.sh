@@ -100,6 +100,7 @@ function main() {
     setup_kubeadm_kustomize
     addon_join aws "$AWS_VERSION"
     addon_join nodeless "$NODELESS_VERSION"
+    addon_join calico "$CALICO_VERSION"
     addon_join weave "$WEAVE_VERSION"
     addon_join rook "$ROOK_VERSION"
     addon_join contour "$CONTOUR_VERSION"
