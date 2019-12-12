@@ -9,19 +9,19 @@ import { Installer } from "../../installers";
 export class Templates {
 
   private kurlURL: string;
+  private replicatedAppURL: string;
   private installTmpl: (any) => string;
   private joinTmpl: (any) => string;
   private upgradeTmpl: (any) => string;
-  private createBundleScript: string;
 
   constructor () {
     this.kurlURL = process.env["KURL_URL"] || "https://kurl.sh";
+    this.replicatedAppURL = process.env["REPLICATED_APP_URL"] || "https://replicated.app";
 
     const tmplDir = path.join(__dirname, "../../../../templates");
     const installTmplPath = path.join(tmplDir, "install.tmpl");
     const joinTmplPath = path.join(tmplDir, "join.tmpl");
     const upgradeTmplPath = path.join(tmplDir, "upgrade.tmpl");
-    const createBundlePath = path.join(tmplDir, "create-bundle-alpine.sh");
 
     const opts = {
       escape: /{{-([\s\S]+?)}}/g,
@@ -31,23 +31,18 @@ export class Templates {
     this.installTmpl = _.template(fs.readFileSync(installTmplPath, "utf8"), opts);
     this.joinTmpl = _.template(fs.readFileSync(joinTmplPath, "utf8"), opts);
     this.upgradeTmpl = _.template(fs.readFileSync(upgradeTmplPath, "utf8"), opts);
-    this.createBundleScript = fs.readFileSync(createBundlePath, "utf8");
   }
 
   public renderInstallScript(i: Installer): string {
-    return this.installTmpl(manifestFromInstaller(i, this.kurlURL));
+    return this.installTmpl(manifestFromInstaller(i, this.kurlURL, this.replicatedAppURL));
   }
 
   public renderJoinScript(i: Installer): string {
-    return this.joinTmpl(manifestFromInstaller(i, this.kurlURL));
+    return this.joinTmpl(manifestFromInstaller(i, this.kurlURL, this.replicatedAppURL));
   }
 
   public renderUpgradeScript(i: Installer): string {
-    return this.upgradeTmpl(manifestFromInstaller(i, this.kurlURL));
-  }
-
-  public renderCreateBundleScript(i: Installer): string {
-    return this.createBundleScript;
+    return this.upgradeTmpl(manifestFromInstaller(i, this.kurlURL, this.replicatedAppURL));
   }
 }
 
@@ -58,16 +53,28 @@ interface Manifest {
   WEAVE_VERSION: string;
   ROOK_VERSION: string;
   CONTOUR_VERSION: string;
+  REGISTRY_VERSION: string;
+  PROMETHEUS_VERSION: string;
+  KOTSADM_VERSION: string;
+  KOTSADM_APPLICATION_SLUG: string;
+  REPLICATED_APP_URL: string;
+  FLAGS: string;
 }
 
-function manifestFromInstaller(i: Installer, kurlURL: string): Manifest {
+function manifestFromInstaller(i: Installer, kurlURL: string, replicatedAppURL: string): Manifest {
   return {
     KURL_URL: kurlURL,
     INSTALLER_ID: i.id,
-    KUBERNETES_VERSION: i.kubernetesVersion(),
-    WEAVE_VERSION: i.weaveVersion(),
-    ROOK_VERSION: i.rookVersion(),
-    CONTOUR_VERSION: i.contourVersion(),
+    KUBERNETES_VERSION: i.spec.kubernetes.version,
+    WEAVE_VERSION: _.get(i.spec, "weave.version", ""),
+    ROOK_VERSION: _.get(i.spec, "rook.version", ""),
+    CONTOUR_VERSION: _.get(i.spec, "contour.version", ""),
+    REGISTRY_VERSION: _.get(i.spec, "registry.version", ""),
+    PROMETHEUS_VERSION: _.get(i.spec, "prometheus.version", ""),
+    KOTSADM_VERSION: _.get(i.spec, "kotsadm.version", ""),
+    KOTSADM_APPLICATION_SLUG: _.get(i.spec, "kotsadm.applicationSlug", ""),
+    REPLICATED_APP_URL: replicatedAppURL,
+    FLAGS: i.flags(),
   };
 }
 

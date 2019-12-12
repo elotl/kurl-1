@@ -1,5 +1,7 @@
 
 function flags() {
+    POD_CIDR="10.32.0.0/12"
+    SERVICE_CIDR="10.96.0.0/12"
     while [ "$1" != "" ]; do
         _param="$(echo "$1" | cut -d= -f1)"
         _value="$(echo "$1" | grep '=' | cut -d= -f2-)"
@@ -80,6 +82,9 @@ function flags() {
             disable-contour|disable_contour)
                 CONTOUR_VERSION=""
                 ;;
+            disable-prometheus|disable_prometheus)
+                PROMETHEUS_VERSION=""
+                ;;
             disable-rook|disable_rook)
                 ROOK_VERSION=""
                 ;;
@@ -124,7 +129,8 @@ function flags() {
                 KUBEADM_TOKEN_CA_HASH="$_value"
                 ;;
             kubernetes-version|kubernetes_version)
-                if [ -n "$KUBERNETES_VERSION" ] && [ "$_value" != "$KUBERNETES_VERSION" ]; then
+                local k8sversion=$(echo "$_value" | sed 's/v//')
+                if [ -n "$KUBERNETES_VERSION" ] && [ "$k8sversion" != "$KUBERNETES_VERSION" ]; then
                     bail "This script installs $KUBERNETES_VERSION"
                 fi
                 ;;
@@ -140,17 +146,23 @@ function flags() {
             docker-registry-ip|docker_registry_ip)
                 DOCKER_REGISTRY_IP="$_value"
                 ;;
-            nodeless)
-                NODELESS=1
-                if [ -z "$POD_CIDR" ]; then
-                    POD_CIDR="172.20.0.0/16"
-                fi
-                if [ -z "$SERVICE_CIDR" ]; then
-                    SERVICE_CIDR="10.96.0.0/12"
-                fi
+            kotsadm-hostname|kotsadm_hostname)
+                KOTSADM_HOSTNAME="$_value"
+                ;;
+            kotsadm-ui-bind-port|kotsadm_ui_bind_port)
+                KOTSADM_UI_BIND_PORT="$_value"
                 ;;
             pod-cidr|pod_cidr)
                 POD_CIDR="$_value"
+                ;;
+            service-cidr|service_cidr)
+                SERVICE_CIDR="$_value"
+                ;;
+            registry-publish-port|registry_publish_port)
+                REGISTRY_PUBLISH_PORT="$_value"
+                ;;
+            kotsadm-application-namespaces|kotsadm_application_namespaces)
+                KOTSADM_APPLICATION_NAMESPACES="$_value"
                 ;;
             *)
                 echo >&2 "Error: unknown parameter \"$_param\""

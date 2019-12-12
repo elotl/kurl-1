@@ -9,6 +9,16 @@ spec:
       nodeSelector:
         replicated/node-pool: privileged
       containers:
+      - name: server
+        image: 923411875752.dkr.ecr.us-east-1.amazonaws.com/kurl
+        env:
+        - name: KURL_BUCKET
+          value: kurl-sh-staging
+        resources:
+          requests:
+            cpu: 100m
+          limits:
+            cpu: 1
       - name: kurl
         image: 923411875752.dkr.ecr.us-east-1.amazonaws.com/kurl
         env:
@@ -24,3 +34,5 @@ spec:
           value: kurl-sh-staging
         - name: NODE_ENV
           value: staging
+        - name: REPLICATED_APP_URL
+          value: https://staging.replicated.app

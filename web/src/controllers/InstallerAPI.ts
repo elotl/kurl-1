@@ -1,4 +1,5 @@
 import * as Express from "express";
+import * as _ from "lodash";
 import {
   Controller,
   Get,
@@ -9,11 +10,9 @@ import {
   Req,
   Res } from "ts-express-decorators";
 import { instrumented } from "monkit";
-import { Installer, InstallerStore } from "../installers";
+import { Installer, InstallerObject, InstallerStore } from "../installers";
 import decode from "../util/jwt";
 import { Forbidden } from "../server/errors";
-import { Kubernetes } from "../kubernetes";
-import { S3Wrapper } from "../util/services/s3";
 import { logger } from "../logger";
 
 interface ErrorResponse {
@@ -31,12 +30,6 @@ const teamWithGeneratedIDResponse = {
     message: "Name is indistinguishable from a generated ID."
   },
 }
-
-const idNameMismatchResponse = {
-  error: {
-    message: "URL path ID must match installer name in yaml if provided",
-  },
-};
 
 const slugCharactersResponse = {
   error: {
@@ -75,20 +68,8 @@ export class Installers {
 
   constructor (
     private readonly installerStore: InstallerStore,
-    private readonly kubernetes: Kubernetes,
-    private readonly s3: S3Wrapper,
   ) {
     this.kurlURL = process.env["KURL_URL"] || "https://kurl.sh";
-  }
-
-  private async airgapBundleOK(i: Installer): Promise<boolean> {
-    try {
-      return await this.s3.objectExists(`bundle/${i.id}.tar.gz`);
-    } catch(error) {
-      logger.error(error);
-      // don't trigger a new airgap build based on a failed call to S3
-      return true;
-    }
   }
 
   /**
@@ -121,25 +102,31 @@ export class Installers {
     }
     i.id = i.hash();
 
-    const err = i.validate();
+    const err = await i.validate();
     if (err) {
       response.status(400);
-      return { error: { message: err } };
+      return err;
     }
 
-    const created = await this.installerStore.saveAnonymousInstaller(i);
-
-    if (created) {
-      logger.info(`Building new airgap bundle: ${i.id}`);
-      await this.kubernetes.runCreateAirgapBundleJob(i);
-    } else if (!(await this.airgapBundleOK(i))) {
-      logger.info(`Rebuilding missing airgap bundle: ${i.id}`);
-      await this.kubernetes.maybeRunCreateAirgapBundleJob(i); 
-    }
+    await this.installerStore.saveAnonymousInstaller(i);
 
     response.contentType("text/plain");
     response.status(201);
     return `${this.kurlURL}/${i.id}`;
+  }
+
+  @Get("/")
+  public getInstallerVersions(
+    @Res() response: Express.Response,
+  ): any {
+    response.type("application/json");
+
+    const resp = _.reduce(Installer.versions, (accm, value, key) => {
+      accm[key] = _.concat(["latest"], value);
+      return accm;
+    }, {});
+
+    return resp;
   }
 
   /**
@@ -194,23 +181,14 @@ export class Installers {
       response.status(400);
       return { error };
     }
-    if (i.id !== "" && i.id !== id) {
-      return idNameMismatchResponse;
-    }
     i.id = id;
-    const err = i.validate();
+    const err = await i.validate();
     if (err) {
+      response.status(400);
       return err;
     }
 
-    const newOrChanged = await this.installerStore.saveTeamInstaller(i);
-    if (newOrChanged) {
-      logger.info(`Building new/updated airgap bundle: ${i.id}`);
-      await this.kubernetes.runCreateAirgapBundleJob(i);
-    } else if (!(await this.airgapBundleOK(i))) {
-      logger.info(`Rebuilding missing airgap bundle: ${i.id}`);
-      await this.kubernetes.maybeRunCreateAirgapBundleJob(i); 
-    }
+    await this.installerStore.saveTeamInstaller(i);
 
     response.contentType("text/plain");
     response.status(201);
@@ -231,7 +209,7 @@ export class Installers {
     @Req() request: Express.Request,
     @PathParams("id") id: string,
     @QueryParams("resolve") resolve: string,
-  ): Promise<string | ErrorResponse> {
+  ): Promise<string | InstallerObject | ErrorResponse> {
     let installer = await this.installerStore.getInstaller(id);
     if (!installer) {
       response.status(404);
@@ -244,8 +222,14 @@ export class Installers {
       installer.id = "";
     }
 
-    response.contentType("text/yaml");
     response.status(200);
+
+    if (request.accepts("application/json")) {
+      response.contentType("application/json");
+      return installer.toObject();
+    }
+
+    response.contentType("text/yaml");
     return installer.toYAML();
   }
 }

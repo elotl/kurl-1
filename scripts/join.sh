@@ -21,8 +21,6 @@ DIR=.
 # Magic end
 
 function join() {
-    get_yaml
-
     if [ "$MASTER" = "1" ]; then
         logStep "Join Kubernetes master node"
 
@@ -38,12 +36,23 @@ function join() {
         logStep "Join Kubernetes node"
     fi
 
-    mkdir -p "$KUBEADM_CONF_DIR"
-    render_yaml kubeadm-join-config-v1beta2${NODELESS_SUFFIX}.yaml > "$KUBEADM_CONF_FILE"
+    kustomize_kubeadm_join=./kustomize/kubeadm/join
     if [ "$MASTER" = "1" ]; then
-        echo "controlPlane:" >> "$KUBEADM_CONF_FILE"
-        echo "  certificateKey: $CERT_KEY" >> "$KUBEADM_CONF_FILE"
+        insert_patches_strategic_merge \
+            $kustomize_kubeadm_join/kustomization.yaml \
+            patch-certificate-key.yaml
     fi
+    # Add kubeadm join patches from addons.
+    for patch in $(ls -1 ${kustomize_kubeadm_join}-patches/* 2>/dev/null || echo); do
+        patch_basename="$(basename $patch)"
+        cp $patch $kustomize_kubeadm_join/$patch_basename
+        insert_patches_strategic_merge \
+            $kustomize_kubeadm_join/kustomization.yaml \
+            $patch_basename
+    done
+    mkdir -p "$KUBEADM_CONF_DIR"
+    kubectl kustomize $kustomize_kubeadm_join > $KUBEADM_CONF_DIR/kubeadm-join-raw.yaml
+    render_yaml_file $KUBEADM_CONF_DIR/kubeadm-join-raw.yaml > $KUBEADM_CONF_FILE
 
     set +e
     (set -x; kubeadm join --config /opt/replicated/kubeadm.conf --ignore-preflight-errors=all)
@@ -80,6 +89,7 @@ function main() {
     export KUBECONFIG=/etc/kubernetes/admin.conf
     requireRootUser
     discover
+    flags $FLAGS
     flags "$@"
     preflights
     joinPrompts
@@ -87,19 +97,17 @@ function main() {
     configure_proxy
     check_nodeless
     install_docker
-    addon_load weave "$WEAVE_VERSION"
-    addon_load rook "$ROOK_VERSION"
-    if [ "$NODELESS" = "1" ]; then
-        replace_cri
-    fi
-    if [ "$NODELESS" = "1" ]; then
-        install_milpa
-    else
-        addon_load weave "$WEAVE_VERSION"
-        addon_load rook "$ROOK_VERSION"
-    fi
-    addon_load contour "$CONTOUR_VERSION"
+    get_shared
+    setup_kubeadm_kustomize
+    addon_join aws "$AWS_VERSION"
+    addon_join nodeless "$NODELESS_VERSION"
+    addon_join calico "$CALICO_VERSION"
+    addon_join weave "$WEAVE_VERSION"
+    addon_join rook "$ROOK_VERSION"
+    addon_join contour "$CONTOUR_VERSION"
     addon_join registry "$REGISTRY_VERSION"
+    addon_join prometheus "$PROMETHEUS_VERSION"
+    addon_join kotsadm "$KOTSADM_VERSION"
     kubernetes_host
     join
 }

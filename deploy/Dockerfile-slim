@@ -1,11 +1,11 @@
-FROM node:8-slim
+FROM node:12-slim
 
 ARG version=unknown
 ENV VERSION=$version
 
 ADD web /src
 ADD build/templates /templates
-ADD bin/create-bundle-alpine.sh /templates/create-bundle-alpine.sh
+ADD build/bin/server /bin
 
 WORKDIR /src
 

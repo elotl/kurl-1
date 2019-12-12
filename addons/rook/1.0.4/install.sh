@@ -1,5 +1,3 @@
-STORAGE_CLASS=default
-CEPH_POOL_REPLICAS=1
 CEPH_VERSION=14.2.0-20190410
 
 function rook() {
@@ -16,6 +14,10 @@ function rook() {
         CEPH_DASHBOARD_USER=admin
         CEPH_DASHBOARD_PASSWORD="$cephDashboardPassword"
     fi
+
+    spinnerPodRunning rook-ceph rook-ceph-rgw-rook-ceph-store
+    kubectl apply -f "$DIR/addons/rook/1.0.4/cluster/object-user.yaml"
+    rook_object_store_output
 }
 
 function rook_operator_deploy() {
@@ -36,6 +38,7 @@ function rook_cluster_deploy() {
     # resources
     cp "$src/ceph-cluster.yaml" "$dst/"
     cp "$src/ceph-block-pool.yaml" "$dst/"
+    cp "$src/ceph-object-store.yaml" "$dst/"
     render_yaml_file "$src/tmpl-ceph-storage-class.yaml" > "$dst/ceph-storage-class.yaml"
 
     # patches
@@ -43,6 +46,7 @@ function rook_cluster_deploy() {
     render_yaml_file "$src/patches/tmpl-ceph-cluster-image.yaml" > "$dst/ceph-cluster-image.yaml"
     render_yaml_file "$src/patches/tmpl-ceph-cluster-storage.yaml" > "$dst/ceph-cluster-storage.yaml"
     render_yaml_file "$src/patches/tmpl-ceph-block-pool-replicas.yaml" > "$dst/ceph-block-pool-replicas.yaml"
+    render_yaml_file "$src/patches/tmpl-ceph-object-store.yaml" > "$dst/ceph-object-store-replicas.yaml"
 
     kubectl apply -k "$dst/"
 }
@@ -83,11 +87,16 @@ function rook_is_1() {
     kubectl -n rook-ceph get cephblockpools replicapool &>/dev/null
 }
 
-# CEPH_POOL_REPLICAS has the default value of 1 when this function is called.
-# If the replicapool cephbockpool CR in the rook-ceph namespace is found, set CEPH_POOL_REPLICAS to that.
+# CEPH_POOL_REPLICAS is undefined when this function is called unless set explicitly with a flag.
+# If set by flag use that value.
+# Else if the replicapool cephbockpool CR in the rook-ceph namespace is found, set CEPH_POOL_REPLICAS to that.
 # Then increase up to 3 based on the number of ready nodes found.
 # The ceph-pool-replicas flag will override any value set here.
 function rook_set_ceph_pool_replicas() {
+    if [ -n "$CEPH_POOL_REPLICAS" ]; then
+        return 0
+    fi
+    CEPH_POOL_REPLICAS=1
     set +e
     local discoveredCephPoolReplicas=$(kubectl -n rook-ceph get cephblockpool replicapool -o jsonpath="{.spec.replicated.size}" 2>/dev/null)
     if [ -n "$discoveredCephPoolReplicas" ]; then
@@ -100,19 +109,42 @@ function rook_set_ceph_pool_replicas() {
     set -e
 }
 
-# TODO detect linux version
 function rook_configure_linux_3() {
-    case "$LSB_DIST$DIST_VERSION" in
-        centos7.4|centos7.5|centos7.6|rhel7.4|rhel7.5|rhel7.6)
-            # This needs to be run on Linux 3.x nodes for Rook
-            modprobe rbd
-            echo 'rbd' > /etc/modules-load.d/replicated-rook.conf
+    if [ "$KERNEL_MAJOR" -eq "3" ]; then
+        modprobe rbd
+        echo 'rbd' > /etc/modules-load.d/replicated-rook.conf
 
-            echo "net.bridge.bridge-nf-call-ip6tables = 1" > /etc/sysctl.d/k8s.conf
-            echo "net.bridge.bridge-nf-call-iptables = 1" >> /etc/sysctl.d/k8s.conf
-            echo "net.ipv4.conf.all.forwarding = 1" >> /etc/sysctl.d/k8s.conf
+        echo "net.bridge.bridge-nf-call-ip6tables = 1" > /etc/sysctl.d/k8s.conf
+        echo "net.bridge.bridge-nf-call-iptables = 1" >> /etc/sysctl.d/k8s.conf
+        echo "net.ipv4.conf.all.forwarding = 1" >> /etc/sysctl.d/k8s.conf
 
-            sysctl --system
-            ;;
-    esac
+        sysctl --system
+    fi
+}
+
+function rook_object_store_output() {
+    # Rook operator creates this secret from the user CRD just applied
+    while ! kubectl -n rook-ceph get secret rook-ceph-object-user-rook-ceph-store-kurl 2>/dev/null; do
+        sleep 2
+    done
+
+    # create the docker-registry bucket through the S3 API
+    OBJECT_STORE_ACCESS_KEY=$(kubectl -n rook-ceph get secret rook-ceph-object-user-rook-ceph-store-kurl -o yaml | grep AccessKey | awk '{print $2}' | base64 --decode)
+    OBJECT_STORE_SECRET_KEY=$(kubectl -n rook-ceph get secret rook-ceph-object-user-rook-ceph-store-kurl -o yaml | grep SecretKey | awk '{print $2}' | base64 --decode)
+    OBJECT_STORE_CLUSTER_IP=$(kubectl -n rook-ceph get service rook-ceph-rgw-rook-ceph-store | tail -n1 | awk '{ print $3}')
+}
+
+function rook_create_bucket() {
+    local bucket=$1
+    local acl="x-amz-acl:private"
+    local d=$(date +"%a, %d %b %Y %T %z")
+    local string="PUT\n\n\n${d}\n${acl}\n/$bucket"
+    local sig=$(echo -en "${string}" | openssl sha1 -hmac "${OBJECT_STORE_SECRET_KEY}" -binary | base64)
+
+    curl -X PUT  \
+        -H "Host: $OBJECT_STORE_CLUSTER_IP" \
+        -H "Date: $d" \
+        -H "$acl" \
+        -H "Authorization: AWS $OBJECT_STORE_ACCESS_KEY:$sig" \
+        "http://$OBJECT_STORE_CLUSTER_IP/$bucket" >/dev/null
 }

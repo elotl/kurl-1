@@ -34,6 +34,7 @@ export class Installers {
    * @returns string
    */
   @Get("/:installerID")
+  @Get("/:installerID/install.sh")
   @instrumented
   public async getInstaller(
     @Res() response: Express.Response,
@@ -55,7 +56,7 @@ export class Installers {
   public async root(
     @Res() response: Express.Response,
   ): Promise<string> {
-    const installer = Installer.latest();
+    const installer = Installer.latest().resolve();
 
     response.status(200);
     return this.templates.renderInstallScript(installer);

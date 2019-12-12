@@ -1,5 +1,7 @@
-install_scripts/
-build/
-dist/
-tmp/
-web/templates
+/install_scripts/
+/build/
+/dist/
+/tmp/
+/web/templates
+node_modules/
+*DS_Store

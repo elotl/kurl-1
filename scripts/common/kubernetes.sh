@@ -1,3 +1,5 @@
+export KREW_ROOT=/opt/replicated/krew
+export KUBECTL_PLUGINS_PATH=${KREW_ROOT}/bin
 
 function kubernetes_host() {
     kubernetes_load_ipvs_modules
@@ -7,6 +9,8 @@ function kubernetes_host() {
     kubernetes_install_host_packages "$KUBERNETES_VERSION"
 
     load_images $DIR/packages/kubernetes/$KUBERNETES_VERSION/images
+
+    install_krew
 }
 
 function kubernetes_load_ipvs_modules() {
@@ -17,7 +21,12 @@ function kubernetes_load_ipvs_modules() {
         return
     fi
 
-    modprobe nf_conntrack_ipv4
+    if [ "$KERNEL_MAJOR" -lt "4" ] || ([ "$KERNEL_MAJOR" -eq "4" ] && [ "$KERNEL_MINOR" -lt "19" ]); then
+        modprobe nf_conntrack_ipv4
+    else
+        modprobe nf_conntrack
+    fi
+
     modprobe ip_vs
     modprobe ip_vs_rr
     modprobe ip_vs_wrr
@@ -208,4 +217,61 @@ function kubernetes_nodes_ready() {
         return 1
     fi
     return 0
+}
+
+function kubernetes_scale_down() {
+    local ns="$1"
+    local kind="$2"
+    local name="$3"
+
+    if ! kubernetes_resource_exists "$ns" "$kind" "$name"; then
+        return 0
+    fi
+
+    kubectl -n "$ns" scale "$kind" "$name" --replicas=0
+}
+
+function kubernetes_secret_value() {
+    local ns="$1"
+    local name="$2"
+    local key="$3"
+
+    kubectl -n "$ns" get secret "$name" -ojsonpath="{ .data.$key }" 2>/dev/null | base64 --decode
+}
+
+function install_krew() {
+    if ! kubernetes_is_master; then
+        return 0
+    fi
+
+    mkdir -p $KREW_ROOT
+
+    pushd "$DIR/krew"
+    tar xzf krew.tar.gz
+    ./krew-linux_amd64 install --manifest=krew.yaml --archive=krew.tar.gz
+    tar xf index.tar -C $KREW_ROOT
+    ./krew-linux_amd64 install --manifest=outdated.yaml --archive=outdated.tar.gz
+    ./krew-linux_amd64 install --manifest=preflight.yaml --archive=preflight.tar.gz
+    ./krew-linux_amd64 install --manifest=support-bundle.yaml --archive=support-bundle.tar.gz
+    popd
+
+    chmod -R 0755 /opt/replicated/krew/store
+
+    if ! grep -q KREW_ROOT /etc/profile; then
+        echo "export KREW_ROOT=$KREW_ROOT" >> /etc/profile
+    fi
+    if ! grep -q KUBECTL_PLUGINS_PATH /etc/profile; then
+        echo 'export KUBECTL_PLUGINS_PATH=$KREW_ROOT/bin' >> /etc/profile
+        echo 'export PATH=$KUBECTL_PLUGINS_PATH:$PATH' >> /etc/profile
+    fi
+}
+
+function kubernetes_is_master() {
+    if [ "$MASTER" = "1" ]; then
+        return 0
+    elif [ -f /etc/kubernetes/manifests/kube-apiserver.yaml ]; then
+        return 0
+    else
+        return 1
+    fi
 }

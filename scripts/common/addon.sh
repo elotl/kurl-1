@@ -12,16 +12,35 @@ function addon() {
     rm -rf $DIR/kustomize/$name
     mkdir -p $DIR/kustomize/$name
 
-    addon_load "$name" "$version"
-
     . $DIR/addons/$name/$version/install.sh
 
     $name
 }
 
+function addon_pre_init() {
+    local name=$1
+    local version=$2
+
+    if [ -z "$version" ]; then
+        return 0
+    fi
+
+    addon_load "$name" "$version"
+
+    . $DIR/addons/$name/$version/install.sh
+
+    if commandExists ${name}_pre_init; then
+        ${name}_pre_init
+    fi
+}
+
 function addon_join() {
     local name=$1
     local version=$2
+
+    if [ -z "$version" ]; then
+        return 0
+    fi
 
     addon_load "$name" "$version"
 
@@ -47,4 +66,12 @@ function addon_load() {
     fi
 
     load_images $DIR/addons/$name/$version/images
+}
+
+function addon_outro() {
+    while read -r name; do
+        if commandExists ${name}_outro; then
+            ${name}_outro
+        fi
+    done < <(find addons/ -mindepth 1 -maxdepth 1 -type d -printf '%f\n')
 }

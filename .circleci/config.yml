@@ -23,10 +23,16 @@ jobs:
             echo "refusing to build fork \"${CIRCLE_PROJECT_USERNAME}\""
             exit 1
           fi
+  
+  test:
+    <<: *defaults
+    steps:
+      - checkout
+      - run: make -C web test
 
   upload_staging_packages:
     <<: *defaults
-    parallelism: 5
+    parallelism: 8
     steps:
       - checkout
       - setup_remote_docker:
@@ -38,34 +44,10 @@ jobs:
             export AWS_SECRET_ACCESS_KEY=$STAGING_AWS_SECRET_ACCESS_KEY
             export S3_BUCKET=kurl-sh-staging
             bin/upload-dist.sh
-
-  upload_staging_latest:
-    <<: *defaults
-    steps:
-      - checkout
-      - deploy:
-          name: upload latest bundle
-          command: |
-            export AWS_ACCESS_KEY_ID=$STAGING_AWS_ACCESS_KEY_ID
-            export AWS_SECRET_ACCESS_KEY=$STAGING_AWS_SECRET_ACCESS_KEY
-            export S3_BUCKET=kurl-sh-staging
-            bin/upload-latest-bundle.sh
-
-  upload_production_latest:
-    <<: *defaults
-    steps:
-      - checkout
-      - deploy:
-          name: upload latest bundle
-          command: |
-            export AWS_ACCESS_KEY_ID=$PRODUCTION_AWS_ACCESS_KEY_ID
-            export AWS_SECRET_ACCESS_KEY=$PRODUCTION_AWS_SECRET_ACCESS_KEY
-            export S3_BUCKET=kurl-sh
-            bin/upload-latest-bundle.sh
 
   upload_production_packages:
     <<: *defaults
-    parallelism: 5
+    parallelism: 8
     steps:
       - checkout
       - setup_remote_docker:
@@ -77,6 +59,17 @@ jobs:
             export AWS_SECRET_ACCESS_KEY=$PRODUCTION_AWS_SECRET_ACCESS_KEY
             export S3_BUCKET=kurl-sh
             bin/upload-dist.sh
+
+  push_util_image:
+    <<: *defaults
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 17.06.0-ce
+      - run: |
+          docker build -t replicated/kurl-util -f deploy/kurl-util/Dockerfile .
+          docker login -u="$DOCKERHUB_DOCKER_USER" -p="$DOCKERHUB_DOCKER_PASS"
+          docker push replicated/kurl-util
 
   build_staging_docker_image:
     <<: *defaults
@@ -183,9 +176,6 @@ workflows:
           requires:
             - build_staging_docker_image
             - upload_staging_packages
-      - upload_staging_latest:
-          requires:
-            - upload_staging_packages
       - build_production_docker_image:
           requires:
             - is_upstream
@@ -196,12 +186,10 @@ workflows:
       - upload_production_packages:
           requires:
             - hold
-      - deploy_production_eks:
+      - push_util_image:
           requires:
-            - upload_production_packages
-            - build_production_docker_image
             - hold
-      - upload_production_latest:
+      - deploy_production_eks:
           requires:
             - upload_production_packages
             - build_production_docker_image
