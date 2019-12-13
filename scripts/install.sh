@@ -66,6 +66,17 @@ function init() {
             $kustomize_kubeadm_init/kustomization.yaml \
             patch-load-balancer-address.yaml
     fi
+    # Add kubeadm init patches from addons.
+    for patch in $(ls -1 ${kustomize_kubeadm_init}-patches/* 2>/dev/null || echo); do
+        patch_basename="$(basename $patch)"
+        cp $patch $kustomize_kubeadm_init/$patch_basename
+        insert_patches_strategic_merge \
+            $kustomize_kubeadm_init/kustomization.yaml \
+            $patch_basename
+    done
+    mkdir -p "$KUBEADM_CONF_DIR"
+    kubectl kustomize $kustomize_kubeadm_init > $KUBEADM_CONF_DIR/kubeadm-init-raw.yaml
+    render_yaml_file $KUBEADM_CONF_DIR/kubeadm-init-raw.yaml > $KUBEADM_CONF_FILE
 
     # Add kubeadm init patches from addons.
     for patch in $(ls -1 ${kustomize_kubeadm_init}-patches/* 2>/dev/null || echo); do
