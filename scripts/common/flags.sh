@@ -129,7 +129,8 @@ function flags() {
                 KUBEADM_TOKEN_CA_HASH="$_value"
                 ;;
             kubernetes-version|kubernetes_version)
-                if [ -n "$KUBERNETES_VERSION" ] && [ "$_value" != "$KUBERNETES_VERSION" ]; then
+                local k8sversion=$(echo "$_value" | sed 's/v//')
+                if [ -n "$KUBERNETES_VERSION" ] && [ "$k8sversion" != "$KUBERNETES_VERSION" ]; then
                     bail "This script installs $KUBERNETES_VERSION"
                 fi
                 ;;
@@ -156,6 +157,12 @@ function flags() {
                 ;;
             service-cidr|service_cidr)
                 SERVICE_CIDR="$_value"
+                ;;
+            registry-publish-port|registry_publish_port)
+                REGISTRY_PUBLISH_PORT="$_value"
+                ;;
+            kotsadm-application-namespaces|kotsadm_application_namespaces)
+                KOTSADM_APPLICATION_NAMESPACES="$_value"
                 ;;
             *)
                 echo >&2 "Error: unknown parameter \"$_param\""

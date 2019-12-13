@@ -2,6 +2,7 @@
 
 set -e
 
+MASTER=1
 DIR=.
 
 # Magic begin: scripts are inlined for distribution. See "make build/install.sh"
@@ -23,8 +24,6 @@ DIR=.
 
 function init() {
     logStep "Initialize Kubernetes"
-
-    get_shared
 
     kubernetes_maybe_generate_bootstrap_token
 
@@ -50,16 +49,34 @@ function init() {
             $kustomize_kubeadm_init/kustomization.yaml \
             patch-certificate-key.yaml
     fi
-    if [ -n "$PUBLIC_ADDRESS" ]; then
+
+    # kustomize can merge multiple list patches in some cases but it is not working for me on the
+    # ClusterConfiguration.apiServer.certSANs list
+    if [ -n "$PUBLIC_ADDRESS" ] && [ -n "$LOAD_BALANCER_ADDRESS" ]; then
+        insert_patches_strategic_merge \
+            $kustomize_kubeadm_init/kustomization.yaml \
+            patch-public-and-load-balancer-address.yaml
+    elif [ -n "$PUBLIC_ADDRESS" ]; then
         insert_patches_strategic_merge \
             $kustomize_kubeadm_init/kustomization.yaml \
             patch-public-address.yaml
-    fi
-    if [ -n "$LOAD_BALANCER_ADDRESS" ]; then
+    elif [ -n "$LOAD_BALANCER_ADDRESS" ]; then
         insert_patches_strategic_merge \
             $kustomize_kubeadm_init/kustomization.yaml \
             patch-load-balancer-address.yaml
     fi
+    # Add kubeadm init patches from addons.
+    for patch in $(ls -1 ${kustomize_kubeadm_init}-patches/* 2>/dev/null || echo); do
+        patch_basename="$(basename $patch)"
+        cp $patch $kustomize_kubeadm_init/$patch_basename
+        insert_patches_strategic_merge \
+            $kustomize_kubeadm_init/kustomization.yaml \
+            $patch_basename
+    done
+    mkdir -p "$KUBEADM_CONF_DIR"
+    kubectl kustomize $kustomize_kubeadm_init > $KUBEADM_CONF_DIR/kubeadm-init-raw.yaml
+    render_yaml_file $KUBEADM_CONF_DIR/kubeadm-init-raw.yaml > $KUBEADM_CONF_FILE
+
     # Add kubeadm init patches from addons.
     for patch in $(ls -1 ${kustomize_kubeadm_init}-patches/* 2>/dev/null || echo); do
         patch_basename="$(basename $patch)"
@@ -215,6 +232,7 @@ function main() {
     prompts
     configure_proxy
     install_docker
+    get_shared
     upgrade_kubernetes_patch
     kubernetes_host
     setup_kubeadm_kustomize

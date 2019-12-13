@@ -20,8 +20,6 @@ DIR=.
 # Magic end
 
 function join() {
-    get_shared
-
     if [ "$MASTER" = "1" ]; then
         logStep "Join Kubernetes master node"
 
@@ -97,6 +95,7 @@ function main() {
     prompts
     configure_proxy
     install_docker
+    get_shared
     setup_kubeadm_kustomize
     addon_join aws "$AWS_VERSION"
     addon_join nodeless "$NODELESS_VERSION"

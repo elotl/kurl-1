@@ -12,11 +12,26 @@ function addon() {
     rm -rf $DIR/kustomize/$name
     mkdir -p $DIR/kustomize/$name
 
+    . $DIR/addons/$name/$version/install.sh
+
+    $name
+}
+
+function addon_pre_init() {
+    local name=$1
+    local version=$2
+
+    if [ -z "$version" ]; then
+        return 0
+    fi
+
     addon_load "$name" "$version"
 
     . $DIR/addons/$name/$version/install.sh
 
-    $name
+    if commandExists ${name}_pre_init; then
+        ${name}_pre_init
+    fi
 }
 
 function addon_pre_init() {
